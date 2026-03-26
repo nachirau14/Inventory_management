@@ -60,6 +60,11 @@ if "aws" not in st.secrets:
 st.title("📤 Material Dispatch (Outward)")
 st.caption("Issue materials from inventory for manufacturing")
 
+# Show success message from previous dispatch (persists across rerun)
+if "dispatch_success" in st.session_state:
+    st.success(st.session_state.pop("dispatch_success"))
+
+
 # ──────────────────────────────────────────────────────────────
 # DATA LOADERS
 # ──────────────────────────────────────────────────────────────
@@ -264,8 +269,12 @@ with tab_dispatch:
                             issued_to=issued_to,
                             issued_by=issued_by,
                         )
-                        st.success(f"Material issued!  Transaction ID: **{txn_id}**")
+                        st.session_state["dispatch_success"] = (
+                            f"Material issued!  Transaction ID: **{txn_id}**"
+                        )
                         load_stock.clear()
+                        load_materials.clear()
+                        st.rerun()
                     except ValueError as ve:
                         st.error(f"Cannot issue: {ve}")
                     except Exception as e:

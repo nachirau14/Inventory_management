@@ -60,6 +60,11 @@ if "aws" not in st.secrets:
 st.title("📥 Material Entry (Inward)")
 st.caption("Record incoming materials into inventory")
 
+# Show success message from previous entry (persists across rerun)
+if "entry_success" in st.session_state:
+    st.success(st.session_state.pop("entry_success"))
+    st.balloons()
+
 # ──────────────────────────────────────────────────────────────
 # DATA LOADERS
 # ──────────────────────────────────────────────────────────────
@@ -164,9 +169,12 @@ with tab_entry:
                     invoice_no=invoice_no,
                     received_by=received_by,
                 )
-                st.success(f"Entry recorded!  Transaction ID: **{txn_id}**")
-                st.balloons()
+                st.session_state["entry_success"] = (
+                    f"Entry recorded!  Transaction ID: **{txn_id}**"
+                )
                 load_stock.clear()
+                load_materials.clear()
+                st.rerun()
             except Exception as e:
                 st.error(f"Error recording entry: {e}")
 
