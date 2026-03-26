@@ -235,6 +235,7 @@ with tab_stock:
     for s in stock_data:
         mid = s["material_id"]
         mat = mat_lookup.get(mid, {})
+        qty = int(s.get("quantity", 0))
         rows.append({
             "Material ID": mid,
             "Description": mat.get("description", "—"),
@@ -242,8 +243,9 @@ with tab_stock:
             "Type": mat.get("material_type", "—"),
             "Unit": mat.get("unit", "—"),
             "Unit Wt (kg)": float(mat.get("unit_weight_kg", 0)),
-            "Qty in Stock": int(s.get("quantity", 0)),
+            "Qty in Stock": qty,
             "Total Weight (kg)": float(s.get("total_weight_kg", 0)),
+            "Status": "🔴 Out" if qty == 0 else ("🟡 Low" if qty < 5 else "🟢 OK"),
             "Last Updated": s.get("last_updated", "—"),
         })
 
@@ -254,13 +256,17 @@ with tab_stock:
             df["Category"].unique().tolist(),
             default=df["Category"].unique().tolist(),
         )
+        show_in_stock = st.checkbox("Show only items with stock > 0", value=True, key="entry_stock_filter")
+
         df_f = df[df["Category"].isin(cat_filter)]
+        if show_in_stock:
+            df_f = df_f[df_f["Qty in Stock"] > 0]
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total SKUs", len(df_f))
-        c2.metric("Items in Stock", int(df_f["Qty in Stock"].sum()))
-        c3.metric("Total Weight", f"{df_f['Total Weight (kg)'].sum():,.1f} kg")
-        c4.metric("Low Stock (< 5)", int((df_f["Qty in Stock"].between(1, 4)).sum()))
+        c2.metric("In Stock", int((df_f["Qty in Stock"] > 0).sum()))
+        c3.metric("Out of Stock", int((df_f["Qty in Stock"] == 0).sum()))
+        c4.metric("Total Weight", f"{df_f['Total Weight (kg)'].sum():,.1f} kg")
 
         st.dataframe(df_f.sort_values("Category"), use_container_width=True, hide_index=True, height=500)
     else:

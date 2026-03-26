@@ -99,23 +99,37 @@ with tab_dispatch:
     stock_data = load_stock()
     stock_lookup = {s["material_id"]: s for s in stock_data}
 
-    col_filter, _ = st.columns([1, 2])
-    with col_filter:
-        categories = sorted({m.get("category", "OTHER") for m in materials})
-        selected_cat = st.selectbox(
-            "Material Category",
-            categories,
-            format_func=lambda c: CATEGORY_LABELS.get(c, c),
-            key="dispatch_cat",
-        )
+    # Build set of material IDs that have stock > 0
+    in_stock_ids = {
+        s["material_id"]
+        for s in stock_data
+        if int(s.get("quantity", 0)) > 0
+    }
+
+    # Only show categories that have at least one item in stock
+    in_stock_materials = [m for m in materials if m["material_id"] in in_stock_ids]
+    categories = sorted({m.get("category", "OTHER") for m in in_stock_materials})
+
+    if not categories:
+        st.warning("No materials currently in stock. Record inward entries first.")
+    else:
+        col_filter, _ = st.columns([1, 2])
+        with col_filter:
+            selected_cat = st.selectbox(
+                "Material Category",
+                categories,
+                format_func=lambda c: CATEGORY_LABELS.get(c, c),
+                key="dispatch_cat",
+            )
 
     filtered = sorted(
-        [m for m in materials if m.get("category") == selected_cat],
+        [m for m in in_stock_materials if m.get("category") == selected_cat],
         key=lambda m: m.get("description", ""),
-    )
+    ) if categories else []
 
     if not filtered:
-        st.warning("No materials found in this category.")
+        if categories:
+            st.info("No items with stock in this category.")
     else:
         material_options = {}
         for m in filtered:
@@ -141,14 +155,11 @@ with tab_dispatch:
             current_stock = stock_lookup.get(selected_id, {})
             available_qty = int(current_stock.get("quantity", 0))
 
-            if available_qty == 0:
-                st.error("⚠️ This material is OUT OF STOCK")
-
             quantity = st.number_input(
                 f"Quantity to Issue (available: {available_qty})",
                 min_value=1,
-                max_value=max(available_qty, 1),
-                value=min(1, available_qty) if available_qty > 0 else 1,
+                max_value=available_qty,
+                value=1,
                 step=1,
                 key="dispatch_qty",
             )
@@ -186,30 +197,27 @@ with tab_dispatch:
 
         st.divider()
 
-        if available_qty > 0:
-            col_btn, _ = st.columns([1, 2])
-            with col_btn:
-                confirm = st.checkbox("I confirm the above details are correct")
+        col_btn, _ = st.columns([1, 2])
+        with col_btn:
+            confirm = st.checkbox("I confirm the above details are correct")
 
-            if confirm:
-                if st.button("📤 Issue Material", type="primary", use_container_width=True):
-                    try:
-                        txn_id = db.record_outward(
-                            material_id=selected_id,
-                            quantity=quantity,
-                            remarks=remarks,
-                            job_order=job_order,
-                            issued_to=issued_to,
-                            issued_by=issued_by,
-                        )
-                        st.success(f"Material issued!  Transaction ID: **{txn_id}**")
-                        load_stock.clear()
-                    except ValueError as ve:
-                        st.error(f"Cannot issue: {ve}")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-        else:
-            st.warning("Cannot issue — stock is zero. Record an inward entry first.")
+        if confirm:
+            if st.button("📤 Issue Material", type="primary", use_container_width=True):
+                try:
+                    txn_id = db.record_outward(
+                        material_id=selected_id,
+                        quantity=quantity,
+                        remarks=remarks,
+                        job_order=job_order,
+                        issued_to=issued_to,
+                        issued_by=issued_by,
+                    )
+                    st.success(f"Material issued!  Transaction ID: **{txn_id}**")
+                    load_stock.clear()
+                except ValueError as ve:
+                    st.error(f"Cannot issue: {ve}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
