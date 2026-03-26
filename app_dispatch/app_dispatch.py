@@ -104,7 +104,7 @@ with tab_dispatch:
     stock_lookup = {s["material_id"]: s for s in stock_data}
     mat_lookup = {m["material_id"]: m for m in materials}
 
-    # ── STOCK TABLE (in-stock only) ─────────────────────────────
+    # ── STOCK TABLE (in-stock only, paginated by Category × Type) ──
     st.subheader("📊 Current Stock")
 
     col_refresh, _ = st.columns([1, 4])
@@ -139,23 +139,50 @@ with tab_dispatch:
     else:
         df = pd.DataFrame(stock_rows)
 
-        cat_filter = st.multiselect(
-            "Filter by Category",
-            df["Category"].unique().tolist(),
-            default=df["Category"].unique().tolist(),
-            key="stock_cat_filter",
-        )
-        df_f = df[df["Category"].isin(cat_filter)]
-
+        # Overall summary
         c1, c2, c3 = st.columns(3)
-        c1.metric("Items in Stock", len(df_f))
-        c2.metric("Total Pieces", int(df_f["Qty in Stock"].sum()))
-        c3.metric("Total Weight", f"{df_f['Total Weight (kg)'].sum():,.1f} kg")
+        c1.metric("Items in Stock", len(df))
+        c2.metric("Total Pieces", int(df["Qty in Stock"].sum()))
+        c3.metric("Total Weight", f"{df['Total Weight (kg)'].sum():,.1f} kg")
 
-        st.dataframe(
-            df_f.sort_values(["Category", "Description"]),
-            use_container_width=True, hide_index=True, height=350,
+        # Build pagination tabs: Category × Material Type
+        SECTION_LABELS = {
+            "SHEET": "Sheets", "SQUARE_TUBE": "Square Tubes",
+            "C_SECTION": "C Sections", "ANGLE": "Angles",
+            "PIPE": "Pipes", "CUSTOM": "Custom",
+        }
+        sections = (
+            df.groupby(["Category", "Type"])
+            .size()
+            .reset_index(name="count")
+            .sort_values(["Category", "Type"])
         )
+        tab_labels = []
+        tab_keys = []
+        for _, row in sections.iterrows():
+            cat, mtype = row["Category"], row["Type"]
+            label = f"{SECTION_LABELS.get(cat, cat)} – {mtype}"
+            tab_labels.append(label)
+            tab_keys.append((cat, mtype))
+
+        if tab_labels:
+            stock_tabs = st.tabs(tab_labels)
+            for i, stab in enumerate(stock_tabs):
+                cat, mtype = tab_keys[i]
+                with stab:
+                    df_section = df[
+                        (df["Category"] == cat) & (df["Type"] == mtype)
+                    ].sort_values("Description")
+
+                    sc1, sc2, sc3 = st.columns(3)
+                    sc1.metric("Items", len(df_section))
+                    sc2.metric("Pieces", int(df_section["Qty in Stock"].sum()))
+                    sc3.metric("Weight", f"{df_section['Total Weight (kg)'].sum():,.1f} kg")
+
+                    st.dataframe(
+                        df_section.drop(columns=["Category", "Type"]),
+                        use_container_width=True, hide_index=True,
+                    )
 
         # ── ISSUE FORM ──────────────────────────────────────────
         st.markdown("---")

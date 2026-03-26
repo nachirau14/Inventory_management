@@ -234,11 +234,15 @@ with tab_stock:
     if st.button("🔄 Refresh", key="refresh_entry"):
         load_stock.clear()
         load_materials.clear()
+        st.rerun()
 
     stock_data = load_stock()
     materials_data = load_materials()
     mat_lookup = {m["material_id"]: m for m in materials_data}
 
+    show_in_stock = st.checkbox("Show only items with stock > 0", value=True, key="entry_stock_filter")
+
+    # Build full stock dataframe
     rows = []
     for s in stock_data:
         mid = s["material_id"]
@@ -258,25 +262,57 @@ with tab_stock:
         })
 
     if rows:
-        df = pd.DataFrame(rows)
-        cat_filter = st.multiselect(
-            "Filter by Category",
-            df["Category"].unique().tolist(),
-            default=df["Category"].unique().tolist(),
-        )
-        show_in_stock = st.checkbox("Show only items with stock > 0", value=True, key="entry_stock_filter")
-
-        df_f = df[df["Category"].isin(cat_filter)]
+        df_all = pd.DataFrame(rows)
         if show_in_stock:
-            df_f = df_f[df_f["Qty in Stock"] > 0]
+            df_all = df_all[df_all["Qty in Stock"] > 0]
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total SKUs", len(df_f))
-        c2.metric("In Stock", int((df_f["Qty in Stock"] > 0).sum()))
-        c3.metric("Out of Stock", int((df_f["Qty in Stock"] == 0).sum()))
-        c4.metric("Total Weight", f"{df_f['Total Weight (kg)'].sum():,.1f} kg")
+        if df_all.empty:
+            st.info("No items in stock. Record some entries first!")
+        else:
+            # Overall summary
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total SKUs", len(df_all))
+            c2.metric("Total Pieces", int(df_all["Qty in Stock"].sum()))
+            c3.metric("Total Weight", f"{df_all['Total Weight (kg)'].sum():,.1f} kg")
 
-        st.dataframe(df_f.sort_values("Category"), use_container_width=True, hide_index=True, height=500)
+            # Build pagination tabs: Category × Material Type
+            SECTION_LABELS = {
+                "SHEET": "Sheets", "SQUARE_TUBE": "Square Tubes",
+                "C_SECTION": "C Sections", "ANGLE": "Angles",
+                "PIPE": "Pipes", "CUSTOM": "Custom",
+            }
+            sections = (
+                df_all.groupby(["Category", "Type"])
+                .size()
+                .reset_index(name="count")
+                .sort_values(["Category", "Type"])
+            )
+            tab_labels = []
+            tab_keys = []
+            for _, row in sections.iterrows():
+                cat, mtype = row["Category"], row["Type"]
+                label = f"{SECTION_LABELS.get(cat, cat)} – {mtype}"
+                tab_labels.append(label)
+                tab_keys.append((cat, mtype))
+
+            if tab_labels:
+                stock_tabs = st.tabs(tab_labels)
+                for i, stab in enumerate(stock_tabs):
+                    cat, mtype = tab_keys[i]
+                    with stab:
+                        df_section = df_all[
+                            (df_all["Category"] == cat) & (df_all["Type"] == mtype)
+                        ].sort_values("Description")
+
+                        sc1, sc2, sc3 = st.columns(3)
+                        sc1.metric("Items", len(df_section))
+                        sc2.metric("Pieces", int(df_section["Qty in Stock"].sum()))
+                        sc3.metric("Weight", f"{df_section['Total Weight (kg)'].sum():,.1f} kg")
+
+                        st.dataframe(
+                            df_section.drop(columns=["Category", "Type"]),
+                            use_container_width=True, hide_index=True,
+                        )
     else:
         st.info("No stock data yet. Record some entries first!")
 
