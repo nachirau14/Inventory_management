@@ -85,161 +85,39 @@ CATEGORY_LABELS = {
 # ──────────────────────────────────────────────────────────────
 # TABS
 # ──────────────────────────────────────────────────────────────
-tab_dispatch, tab_stock, tab_history = st.tabs([
-    "📤 Issue Material",
-    "📊 Current Stock",
+tab_dispatch, tab_history = st.tabs([
+    "📤 Stock & Issue Material",
     "📜 Dispatch History",
 ])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 1 – DISPATCH MATERIAL
+# TAB 1 – STOCK OVERVIEW + ISSUE MATERIAL (MERGED)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 with tab_dispatch:
     materials = load_materials()
     stock_data = load_stock()
     stock_lookup = {s["material_id"]: s for s in stock_data}
+    mat_lookup = {m["material_id"]: m for m in materials}
 
-    # Build set of material IDs that have stock > 0
-    in_stock_ids = {
-        s["material_id"]
-        for s in stock_data
-        if int(s.get("quantity", 0)) > 0
-    }
+    # ── STOCK TABLE (in-stock only) ─────────────────────────────
+    st.subheader("📊 Current Stock")
 
-    # Only show categories that have at least one item in stock
-    in_stock_materials = [m for m in materials if m["material_id"] in in_stock_ids]
-    categories = sorted({m.get("category", "OTHER") for m in in_stock_materials})
+    col_refresh, _ = st.columns([1, 4])
+    with col_refresh:
+        if st.button("🔄 Refresh", key="refresh_dispatch"):
+            load_stock.clear()
+            load_materials.clear()
+            st.rerun()
 
-    if not categories:
-        st.warning("No materials currently in stock. Record inward entries first.")
-    else:
-        col_filter, _ = st.columns([1, 2])
-        with col_filter:
-            selected_cat = st.selectbox(
-                "Material Category",
-                categories,
-                format_func=lambda c: CATEGORY_LABELS.get(c, c),
-                key="dispatch_cat",
-            )
-
-    filtered = sorted(
-        [m for m in in_stock_materials if m.get("category") == selected_cat],
-        key=lambda m: m.get("description", ""),
-    ) if categories else []
-
-    if not filtered:
-        if categories:
-            st.info("No items with stock in this category.")
-    else:
-        material_options = {}
-        for m in filtered:
-            mid = m["material_id"]
-            stk = stock_lookup.get(mid, {})
-            qty = int(stk.get("quantity", 0))
-            material_options[mid] = (
-                f"{m['description']}  │  Stock: {qty} {m.get('unit', 'pcs')}  │  "
-                f"Unit wt: {m.get('unit_weight_kg', '—')} kg"
-            )
-
-        st.divider()
-        col_left, col_right = st.columns(2)
-
-        with col_left:
-            selected_id = st.selectbox(
-                "Select Material to Issue",
-                list(material_options.keys()),
-                format_func=lambda mid: material_options[mid],
-                key="dispatch_material",
-            )
-
-            current_stock = stock_lookup.get(selected_id, {})
-            available_qty = int(current_stock.get("quantity", 0))
-
-            quantity = st.number_input(
-                f"Quantity to Issue (available: {available_qty})",
-                min_value=1,
-                max_value=available_qty,
-                value=1,
-                step=1,
-                key="dispatch_qty",
-            )
-
-            job_order = st.text_input(
-                "Job Order / Work Order No.",
-                placeholder="e.g. JO-2025-0108",
-            )
-
-        with col_right:
-            issued_to = st.text_input(
-                "Issued To (department / person)",
-                placeholder="e.g. Fabrication – Ravi",
-            )
-            issued_by = st.text_input(
-                "Issued By (store keeper)",
-                placeholder="e.g. Suresh",
-            )
-            remarks = st.text_area(
-                "Remarks / Purpose",
-                placeholder="e.g. For conveyor frame assembly",
-                height=80,
-            )
-
-            mat_detail = next((m for m in filtered if m["material_id"] == selected_id), None)
-            if mat_detail:
-                unit_wt = float(mat_detail.get("unit_weight_kg", 0))
-                total_wt = round(unit_wt * quantity, 3)
-                st.divider()
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Available", f"{available_qty}")
-                c2.metric("Issuing", f"{quantity}")
-                c3.metric("Remaining", f"{available_qty - quantity}")
-                c4.metric("Weight Issued", f"{total_wt} kg")
-
-        st.divider()
-
-        col_btn, _ = st.columns([1, 2])
-        with col_btn:
-            confirm = st.checkbox("I confirm the above details are correct")
-
-        if confirm:
-            if st.button("📤 Issue Material", type="primary", use_container_width=True):
-                try:
-                    txn_id = db.record_outward(
-                        material_id=selected_id,
-                        quantity=quantity,
-                        remarks=remarks,
-                        job_order=job_order,
-                        issued_to=issued_to,
-                        issued_by=issued_by,
-                    )
-                    st.success(f"Material issued!  Transaction ID: **{txn_id}**")
-                    load_stock.clear()
-                except ValueError as ve:
-                    st.error(f"Cannot issue: {ve}")
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 2 – CURRENT STOCK
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tab_stock:
-    st.subheader("📊 Current Stock Levels")
-
-    if st.button("🔄 Refresh", key="refresh_dispatch"):
-        load_stock.clear()
-        load_materials.clear()
-
-    stock_data = load_stock()
-    materials_data = load_materials()
-    mat_lookup = {m["material_id"]: m for m in materials_data}
-
-    rows = []
+    # Build rows for in-stock items only
+    stock_rows = []
     for s in stock_data:
+        qty = int(s.get("quantity", 0))
+        if qty <= 0:
+            continue
         mid = s["material_id"]
         mat = mat_lookup.get(mid, {})
-        qty = int(s.get("quantity", 0))
-        rows.append({
+        stock_rows.append({
             "Material ID": mid,
             "Description": mat.get("description", "—"),
             "Category": mat.get("category", "—"),
@@ -248,39 +126,154 @@ with tab_stock:
             "Unit Wt (kg)": float(mat.get("unit_weight_kg", 0)),
             "Qty in Stock": qty,
             "Total Weight (kg)": float(s.get("total_weight_kg", 0)),
-            "Status": "🔴 Out" if qty == 0 else ("🟡 Low" if qty < 5 else "🟢 OK"),
+            "Status": "🟡 Low" if qty < 5 else "🟢 OK",
         })
 
-    if rows:
-        df = pd.DataFrame(rows)
+    if not stock_rows:
+        st.warning("No materials currently in stock. Record inward entries first.")
+    else:
+        df = pd.DataFrame(stock_rows)
+
         cat_filter = st.multiselect(
             "Filter by Category",
             df["Category"].unique().tolist(),
             default=df["Category"].unique().tolist(),
-            key="stock_filter_dispatch",
+            key="stock_cat_filter",
         )
-        show_in_stock = st.checkbox("Show only items with stock > 0", value=False)
-
         df_f = df[df["Category"].isin(cat_filter)]
-        if show_in_stock:
-            df_f = df_f[df_f["Qty in Stock"] > 0]
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total SKUs", len(df_f))
-        c2.metric("In Stock", int((df_f["Qty in Stock"] > 0).sum()))
-        c3.metric("Out of Stock", int((df_f["Qty in Stock"] == 0).sum()))
-        c4.metric("Total Weight", f"{df_f['Total Weight (kg)'].sum():,.1f} kg")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Items in Stock", len(df_f))
+        c2.metric("Total Pieces", int(df_f["Qty in Stock"].sum()))
+        c3.metric("Total Weight", f"{df_f['Total Weight (kg)'].sum():,.1f} kg")
 
         st.dataframe(
             df_f.sort_values(["Category", "Description"]),
-            use_container_width=True, hide_index=True, height=500,
+            use_container_width=True, hide_index=True, height=350,
         )
-    else:
-        st.info("No stock data available.")
+
+        # ── ISSUE FORM ──────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📤 Issue Material")
+
+        # Only in-stock material IDs
+        in_stock_ids = {
+            s["material_id"]
+            for s in stock_data
+            if int(s.get("quantity", 0)) > 0
+        }
+        in_stock_materials = [m for m in materials if m["material_id"] in in_stock_ids]
+
+        # Category selector (only categories with stock)
+        issue_categories = sorted({m.get("category", "OTHER") for m in in_stock_materials})
+
+        col_cat, _ = st.columns([1, 2])
+        with col_cat:
+            selected_cat = st.selectbox(
+                "Material Category",
+                issue_categories,
+                format_func=lambda c: CATEGORY_LABELS.get(c, c),
+                key="issue_cat",
+            )
+
+        filtered = sorted(
+            [m for m in in_stock_materials if m.get("category") == selected_cat],
+            key=lambda m: m.get("description", ""),
+        )
+
+        if not filtered:
+            st.info("No items with stock in this category.")
+        else:
+            material_options = {}
+            for m in filtered:
+                mid = m["material_id"]
+                stk = stock_lookup.get(mid, {})
+                qty = int(stk.get("quantity", 0))
+                material_options[mid] = (
+                    f"{m['description']}  │  Stock: {qty} {m.get('unit', 'pcs')}  │  "
+                    f"Unit wt: {m.get('unit_weight_kg', '—')} kg"
+                )
+
+            col_left, col_right = st.columns(2)
+
+            with col_left:
+                selected_id = st.selectbox(
+                    "Select Material to Issue",
+                    list(material_options.keys()),
+                    format_func=lambda mid: material_options[mid],
+                    key="dispatch_material",
+                )
+
+                current_stock = stock_lookup.get(selected_id, {})
+                available_qty = int(current_stock.get("quantity", 0))
+
+                quantity = st.number_input(
+                    f"Quantity to Issue (available: {available_qty})",
+                    min_value=1,
+                    max_value=available_qty,
+                    value=1,
+                    step=1,
+                    key="dispatch_qty",
+                )
+
+                job_order = st.text_input(
+                    "Job Order / Work Order No.",
+                    placeholder="e.g. JO-2025-0108",
+                )
+
+            with col_right:
+                issued_to = st.text_input(
+                    "Issued To (department / person)",
+                    placeholder="e.g. Fabrication – Ravi",
+                )
+                issued_by = st.text_input(
+                    "Issued By (store keeper)",
+                    placeholder="e.g. Suresh",
+                )
+                remarks = st.text_area(
+                    "Remarks / Purpose",
+                    placeholder="e.g. For conveyor frame assembly",
+                    height=80,
+                )
+
+                mat_detail = next((m for m in filtered if m["material_id"] == selected_id), None)
+                if mat_detail:
+                    unit_wt = float(mat_detail.get("unit_weight_kg", 0))
+                    total_wt = round(unit_wt * quantity, 3)
+                    st.divider()
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Available", f"{available_qty}")
+                    c2.metric("Issuing", f"{quantity}")
+                    c3.metric("Remaining", f"{available_qty - quantity}")
+                    c4.metric("Weight Issued", f"{total_wt} kg")
+
+            st.divider()
+
+            col_btn, _ = st.columns([1, 2])
+            with col_btn:
+                confirm = st.checkbox("I confirm the above details are correct")
+
+            if confirm:
+                if st.button("📤 Issue Material", type="primary", use_container_width=True):
+                    try:
+                        txn_id = db.record_outward(
+                            material_id=selected_id,
+                            quantity=quantity,
+                            remarks=remarks,
+                            job_order=job_order,
+                            issued_to=issued_to,
+                            issued_by=issued_by,
+                        )
+                        st.success(f"Material issued!  Transaction ID: **{txn_id}**")
+                        load_stock.clear()
+                    except ValueError as ve:
+                        st.error(f"Cannot issue: {ve}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 3 – DISPATCH HISTORY
+# TAB 2 – DISPATCH HISTORY
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 with tab_history:
     st.subheader("📜 Dispatch History (Outward)")
@@ -291,13 +284,13 @@ with tab_history:
 
         if outward:
             materials_data = load_materials()
-            mat_lookup = {m["material_id"]: m for m in materials_data}
+            ml = {m["material_id"]: m for m in materials_data}
 
             txn_rows = [
                 {
                     "Transaction ID": t["transaction_id"],
                     "Timestamp": t.get("timestamp", "—"),
-                    "Material": mat_lookup.get(t["material_id"], {}).get("description", t["material_id"]),
+                    "Material": ml.get(t["material_id"], {}).get("description", t["material_id"]),
                     "Qty": int(t.get("quantity", 0)),
                     "Total Wt (kg)": float(t.get("total_weight_kg", 0)),
                     "Job Order": t.get("job_order", "—"),
@@ -332,9 +325,9 @@ with st.sidebar:
     st.markdown(
         "**Factory Inventory System**\n\n"
         "Use this app to:\n"
+        "- View materials in stock\n"
         "- Issue materials for manufacturing\n"
         "- Track job-wise consumption\n"
-        "- View current stock levels\n"
         "- Review dispatch history"
     )
     st.markdown("---")
